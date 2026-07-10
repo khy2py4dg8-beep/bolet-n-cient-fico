@@ -1,0 +1,22 @@
+name: Enviar Boletín Diario
+on:
+  schedule:
+    - cron: '0 12 * * *' # Corre diario a las 12:00 UTC (6:00 AM hora del centro de México)
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Instalar librerías
+        run: pip install feedparser groq
+      - name: Ejecutar Script
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          EMAIL_REMITENTE: ${{ secrets.EMAIL_REMITENTE }}
+          EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+          EMAIL_DESTINATARIO: ${{ secrets.EMAIL_DESTINATARIO }}
+        run: python boletin.py
