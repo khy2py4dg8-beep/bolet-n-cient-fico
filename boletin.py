@@ -1,101 +1,469 @@
-import feedparser
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+================================================================================
+ VANGUARDIA CIENTIFICA - Boletin automatizado de divulgacion cientifica
+================================================================================
+Editado y coordinado por: LOPEZ HELACIO MAXI JESUS
+Tecnologico Nacional de Mexico | Instituto Tecnologico de Celaya
+Automatizado mediante GitHub Actions & Groq
+
+DISEÑO DE LA SOLUCION (por que ya no se duplican los botones):
+--------------------------------------------------------------
+El bug anterior ocurria porque se le pedia a la IA que generara el HTML
+COMPLETO de cada tarjeta (incluyendo el boton <a href>). Al hacer eso, el
+modelo a veces repetia el bloque del boton o alucinaba un link estatico,
+y ademas cualquier reemplazo de string en Python sobre ese HTML (buscando
+</div>) podia insertar contenido duplicado.
+
+La solucion es de division de responsabilidades:
+  1) La IA (Groq) SOLO devuelve un JSON con dos claves: "titulo_es" y
+     "resumen_es". No genera HTML, no genera botones, no genera links.
+  2) Python es el UNICO responsable de construir el HTML de la tarjeta,
+     incluyendo el boton "Leer Articulo Original ->", usando siempre
+     `entrada["link"]` (el link real que vino del RSS, sin tocarlo).
+  3) Como el link nunca pasa por la IA ni por reemplazos de texto, es
+     imposible que se rompa o se duplique: se inserta una sola vez, por
+     tarjeta, directo desde el feed original.
+
+Ademas, todos los strings HTML usan f-strings con comillas triples SIMPLES
+('''...''') y estilos en linea (style="...") en vez de bloques CSS con
+llaves {}, por lo que no hay ningun conflicto entre llaves de Python y
+llaves de CSS.
+"""
+
 import os
+import re
+import json
+import time
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from groq import Groq
+from datetime import datetime
 
-# Configuración de Fuentes Científicas (RSS Feeds)
-FEEDS = {
-    "Nature": "https://www.nature.com/nature.rss",
-    "Science": "https://www.science.org/blogs/feed"
+import requests
+import feedparser
+
+# ==============================================================================
+# 1. CONFIGURACION GENERAL (variables de entorno / secrets de GitHub Actions)
+# ==============================================================================
+
+GROQ_API_KEY = os.environ["GROQ_API_KEY"]
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+EMAIL_ORIGEN = os.environ["EMAIL_ORIGEN"]
+EMAIL_PASSWORD = os.environ["EMAIL_PASSWORD"]
+# Puede ser un solo correo o varios separados por coma: "a@x.com,b@y.com"
+EMAIL_DESTINO = os.environ["EMAIL_DESTINO"]
+SMTP_SERVER = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "465"))
+
+MIN_NOTICIAS_MUNDIALES = 4
+MIN_NOTICIAS_MEXICO = 2
+MIN_TOTAL = 6
+
+HEADERS_HTTP = {
+    "User-Agent": (
+        "Mozilla/5.0 (compatible; BoletinVanguardiaCientifica/1.0; "
+        "+https://github.com/)"
+    )
 }
 
-def recopilar_noticias():
-    print("Recopilando datos científicos...")
-    datos_crudos = ""
-    for fuente, url in FEEDS.items():
-        feed = feedparser.parse(url)
-        for entrada in feed.entries[:3]:
-            # Guardamos la información limpia pasándole explícitamente el link
-            datos_crudos += f"FUENTE_ORIGEN: {fuente}\nTITULO_ORIGEN: {entrada.title}\nENLACE_WEB: {entrada.link}\nRESUMEN_ORIGEN: {entrada.description}\n===\n"
-    return datos_crudos
+# Fuentes de impacto mundial (ciencias biologicas y de la salud)
+FEEDS_MUNDIALES = {
+    "NATURE": "https://www.nature.com/nature.rss",
+    "SCIENCEDAILY": "https://www.sciencedaily.com/rss/top/science.xml",
+    "EUREKALERT": "https://www.eurekalert.org/rss/health_medicine.xml",
+    "NIH": "https://www.nih.gov/news-events/news-releases/feed",
+    "WHO": "https://www.who.int/rss-feeds/news-english.xml",
+}
 
-def generar_boletin_con_ia(datos_cientificos):
-    print("Enviando a Groq para maquetación...")
-    client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
-    
-    # Usamos triples comillas simples para que las llaves no interfieran con Python
-    prompt = '''
-    Actúa como un Diseñador Web Front-End y Divulgador Científico. Genera exclusivamente código HTML para las noticias provistas en [DATOS].
+# Fuentes especificas de Mexico (ciencia / academia / salud)
+# NOTA: los feeds institucionales mexicanos cambian de URL con frecuencia
+# (p. ej. CONACYT paso a llamarse SECIHTI). Se incluyen varias opciones
+# de respaldo; revisa periodicamente que sigan activas.
+FEEDS_MEXICO = {
+    "GACETA UNAM": "https://www.gaceta.unam.mx/feed/",
+    "CIENCIA UNAM": "https://ciencia.unam.mx/rss",
+    "CONACYT PRENSA": "https://conacytprensa.mx/feed/",
+}
 
-    REGLAS DE FORMATO:
-    - NO uses Markdown, asteriscos (**) ni texto explicativo. Solo código HTML.
-    - Traduce los títulos y resúmenes al español.
-    - Por cada noticia del listado, genera exactamente esta estructura HTML:
 
-    <div style="background: #ffffff; padding: 20px; margin-bottom: 25px; border-radius: 8px; border-left: 5px solid #003366; box-shadow: 0 2px 5px rgba(0,0,0,0.05); font-family: Arial, sans-serif;">
-      <span style="color: #6c757d; font-size: 12px; font-weight: bold; text-transform: uppercase;">Noticia de FUENTE_ORIGEN</span>
-      <h3 style="color: #003366; margin: 5px 0 10px 0; font-size: 18px;">Pone aquí el Título Traducido</h3>
-      <p style="color: #495057; font-size: 14px; line-height: 1.5;">Pone aquí el Resumen en español de 3 o 4 líneas.</p>
-      <a href="REEMPLAZA_CON_EL_ENLACE_WEB_DE_CADA_NOTICIA" target="_blank" style="display: inline-block; background: #003366; color: #ffffff; padding: 8px 16px; text-decoration: none; border-radius: 4px; font-size: 12px; margin-top: 10px; font-weight: bold;">Leer Artículo Original →</a>
+# ==============================================================================
+# 2. OBTENCION DE NOTICIAS (RSS)
+# ==============================================================================
+
+def extraer_imagen(entry):
+    """Busca una imagen valida asociada a la entrada del RSS, revisando en
+    orden de prioridad:
+      1) media_content (extension Media RSS, la mas comun en Nature/Science)
+      2) media_thumbnail
+      3) links con type que empiece por 'image/'
+      4) un <img src="..."> suelto dentro del summary/content crudo
+    Devuelve la URL de la imagen (str) o None si no se encontro ninguna.
+    """
+    try:
+        media_content = entry.get("media_content")
+        if media_content:
+            url = (media_content[0].get("url") or "").strip()
+            if url:
+                return url
+
+        media_thumbnail = entry.get("media_thumbnail")
+        if media_thumbnail:
+            url = (media_thumbnail[0].get("url") or "").strip()
+            if url:
+                return url
+
+        for link in entry.get("links", []) or []:
+            tipo = (link.get("type") or "")
+            if tipo.startswith("image/"):
+                href = (link.get("href") or "").strip()
+                if href:
+                    return href
+
+        contenido_crudo = entry.get("summary") or ""
+        if not contenido_crudo and entry.get("content"):
+            try:
+                contenido_crudo = entry["content"][0].get("value", "")
+            except Exception:
+                contenido_crudo = ""
+
+        match = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', contenido_crudo)
+        if match:
+            return match.group(1).strip()
+
+    except Exception as e:
+        print(f"[AVISO] Error al buscar imagen en la entrada: {e}")
+
+    return None
+
+
+def es_url_imagen_valida(url):
+    """Validacion minima: debe ser una URL http(s) bien formada. No
+    descargamos la imagen para no ralentizar el proceso; el atributo
+    style del <img> ya limita max-width, asi que una imagen rota como
+    mucho deja un hueco, nunca rompe el layout."""
+    if not url:
+        return False
+    return url.startswith("http://") or url.startswith("https://")
+
+
+def obtener_entradas_de_feeds(feeds_dict, max_por_feed=3):
+    """Descarga y parsea cada feed RSS del diccionario dado.
+    Devuelve una lista de dicts: fuente, titulo, resumen_original, link, imagen.
+    Cualquier feed que falle se ignora (con aviso en consola) sin detener
+    el resto del proceso.
+    """
+    entradas = []
+    for fuente, url in feeds_dict.items():
+        try:
+            resp = requests.get(url, headers=HEADERS_HTTP, timeout=15)
+            resp.raise_for_status()
+            parsed = feedparser.parse(resp.content)
+
+            for entry in parsed.entries[:max_por_feed]:
+                link = (entry.get("link") or "").strip()
+                titulo = (entry.get("title") or "").strip()
+                resumen_original = (
+                    entry.get("summary") or entry.get("description") or ""
+                ).strip()
+                # Quitamos posibles etiquetas HTML residuales del RSS original
+                resumen_original = re.sub(r"<[^>]+>", "", resumen_original)
+
+                imagen = extraer_imagen(entry)
+                if not es_url_imagen_valida(imagen):
+                    imagen = None
+
+                if link and titulo:
+                    entradas.append({
+                        "fuente": fuente,
+                        "titulo": titulo,
+                        "resumen_original": resumen_original[:800],
+                        "link": link,
+                        "imagen": imagen,
+                    })
+        except Exception as e:
+            print(f"[AVISO] No se pudo leer el feed '{fuente}': {e}")
+            continue
+
+    return entradas
+
+
+def seleccionar_noticias():
+    """Selecciona el set final de noticias: minimo 4 mundiales + 2 Mexico.
+    Si falta contenido de Mexico, se rellena con mundiales adicionales para
+    garantizar el minimo total de 6 (para que el boletin nunca salga vacio
+    o incompleto).
+    """
+    entradas_mundiales = obtener_entradas_de_feeds(FEEDS_MUNDIALES)
+    entradas_mexico = obtener_entradas_de_feeds(FEEDS_MEXICO)
+
+    vistos = set()
+
+    def sin_duplicados(lista):
+        unicas = []
+        for e in lista:
+            if e["link"] not in vistos:
+                vistos.add(e["link"])
+                unicas.append(e)
+        return unicas
+
+    entradas_mundiales = sin_duplicados(entradas_mundiales)
+    entradas_mexico = sin_duplicados(entradas_mexico)
+
+    seleccion_mexico = entradas_mexico[:MIN_NOTICIAS_MEXICO]
+    seleccion_mundial = entradas_mundiales[:MIN_NOTICIAS_MUNDIALES]
+
+    seleccion_final = seleccion_mundial + seleccion_mexico
+
+    # Relleno de seguridad si algun bloque de feeds fallo por completo
+    if len(seleccion_final) < MIN_TOTAL:
+        restantes = [
+            e for e in (entradas_mundiales + entradas_mexico)
+            if e["link"] not in {x["link"] for x in seleccion_final}
+        ]
+        faltan = MIN_TOTAL - len(seleccion_final)
+        seleccion_final += restantes[:faltan]
+
+    if len(seleccion_final) < MIN_TOTAL:
+        print(
+            f"[AVISO] Solo se consiguieron {len(seleccion_final)} noticias "
+            f"validas de las {MIN_TOTAL} minimas requeridas. Verifica los "
+            f"feeds RSS (posibles URLs caidas)."
+        )
+
+    return seleccion_final
+
+
+# ==============================================================================
+# 3. PROCESAMIENTO CON IA (Groq) - SOLO TEXTO, NUNCA HTML NI LINKS
+# ==============================================================================
+
+SYSTEM_PROMPT = '''Eres un traductor y divulgador cientifico experto en ciencias biologicas y de la salud.
+
+Tu unica tarea es tomar un titulo y un resumen (posiblemente en ingles) y devolver
+EXCLUSIVAMENTE un objeto JSON valido, sin texto adicional antes o despues, sin
+bloques de codigo markdown (nada de triple comilla), con esta forma exacta:
+
+{"titulo_es": "...", "resumen_es": "..."}
+
+Reglas estrictas:
+- "titulo_es": traduccion clara y atractiva del titulo al espanol neutro.
+- "resumen_es": resumen divulgativo de 3 a 4 lineas, en espanol neutro, dirigido
+  a un publico con formacion cientifica pero no especialista en el tema.
+- No incluyas la clave "link" ni la clave "fuente": esas las maneja otro sistema.
+- No uses asteriscos, numerales (#), guiones de lista, ni ninguna etiqueta HTML.
+- No agregues comentarios, explicaciones ni texto fuera del JSON.
+'''
+
+
+def limpiar_posible_markdown(texto):
+    """Red de seguridad adicional: si pese a las instrucciones la IA cuela
+    asteriscos, numerales o bloques de codigo, los eliminamos aqui.
+    """
+    if not texto:
+        return ""
+    texto = re.sub(r"```[a-zA-Z]*", "", texto)
+    texto = texto.replace("```", "")
+    texto = texto.replace("**", "")
+    texto = re.sub(r"(?m)^#+\s*", "", texto)
+    return texto.strip()
+
+
+def extraer_json(contenido_ia):
+    """Extrae el primer objeto JSON valido de la respuesta del modelo,
+    incluso si por error viene envuelto en texto o backticks.
+    """
+    contenido_ia = contenido_ia.strip()
+    contenido_ia = re.sub(r"^```[a-zA-Z]*", "", contenido_ia)
+    contenido_ia = contenido_ia.replace("```", "").strip()
+
+    try:
+        return json.loads(contenido_ia)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", contenido_ia, re.DOTALL)
+        if match:
+            return json.loads(match.group(0))
+        raise
+
+
+def resumir_y_traducir_con_ia(entrada, reintentos=2):
+    """Llama a la API de Groq y devuelve (titulo_es, resumen_es).
+    En caso de fallo total, hace fallback al titulo/resumen original para
+    que el boletin nunca se quede sin esa noticia.
+    """
+    mensaje_usuario = (
+        f"Titulo original: {entrada['titulo']}\n"
+        f"Resumen original: {entrada['resumen_original']}\n"
+        f"Fuente: {entrada['fuente']}"
+    )
+
+    payload = {
+        "model": GROQ_MODEL,
+        "messages": [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": mensaje_usuario},
+        ],
+        "temperature": 0.4,
+        "response_format": {"type": "json_object"},
+    }
+
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json",
+    }
+
+    ultimo_error = None
+    for intento in range(reintentos + 1):
+        try:
+            resp = requests.post(GROQ_URL, headers=headers, json=payload, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+            contenido = data["choices"][0]["message"]["content"]
+            resultado = extraer_json(contenido)
+
+            titulo_es = limpiar_posible_markdown(resultado.get("titulo_es", "")) or entrada["titulo"]
+            resumen_es = limpiar_posible_markdown(resultado.get("resumen_es", "")) or entrada["resumen_original"]
+            return titulo_es, resumen_es
+
+        except Exception as e:
+            ultimo_error = e
+            print(f"[AVISO] Intento {intento + 1} fallo para '{entrada['titulo'][:60]}...': {e}")
+            time.sleep(2)
+
+    print(f"[AVISO] Se usa contenido original (sin traducir) por fallo de IA: {ultimo_error}")
+    return entrada["titulo"], entrada["resumen_original"]
+
+
+# ==============================================================================
+# 4. CONSTRUCCION DEL HTML (100% controlado por Python, NUNCA por la IA)
+# ==============================================================================
+
+def construir_tarjeta_html(fuente, titulo_es, resumen_es, link, imagen=None):
+    """Construye UNA tarjeta con UN SOLO boton, apuntando directamente al
+    link real de la noticia (entrada['link']). La IA nunca toca esta parte.
+
+    La imagen (si existe) tampoco la decide la IA: Python ya sabe con
+    certeza si 'imagen' es una URL valida o None, asi que el <img> se
+    incrusta de forma 100% deterministica -- nunca se duplica, nunca se
+    omite por error de la IA, y nunca rompe el layout (max-width:100%).
+    """
+    fuente_mayus = fuente.upper()
+
+    imagen_html = ""
+    if imagen:
+        imagen_html = (
+            f'<img src="{imagen}" alt="{titulo_es}" '
+            f'style="max-width:100%; height:auto; border-radius:6px; '
+            f'margin-bottom:14px; display:block;">'
+        )
+
+    return f'''
+    <div style="background-color:#ffffff; border:1px solid #d9d9d9; border-left:5px solid #003366; border-radius:6px; padding:22px; margin-bottom:22px; font-family: Georgia, 'Times New Roman', serif;">
+        {imagen_html}
+        <p style="color:#003366; font-size:12px; font-weight:bold; letter-spacing:1.5px; margin:0 0 10px 0; text-transform:uppercase;">{fuente_mayus}</p>
+        <h2 style="color:#1a1a1a; font-size:19px; margin:0 0 12px 0; line-height:1.35;">{titulo_es}</h2>
+        <p style="color:#3a3a3a; font-size:15px; line-height:1.6; margin:0 0 18px 0;">{resumen_es}</p>
+        <a href="{link}" target="_blank" style="display:inline-block; background-color:#003366; color:#ffffff; text-decoration:none; padding:10px 20px; border-radius:4px; font-size:13px; font-weight:bold; font-family: Arial, sans-serif;">Leer Articulo Original &rarr;</a>
+    </div>
+    '''
+
+
+def construir_boletin_completo(tarjetas_html, fecha_str):
+    """Envuelve las tarjetas en la plantilla base fija: banner + pie de
+    pagina institucional. Esta parte NUNCA cambia entre ejecuciones.
+    """
+    return f'''<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Vanguardia Cientifica</title>
+</head>
+<body style="margin:0; padding:0; background-color:#eef1f4;">
+
+    <div style="background-color:#003366; padding:32px 20px; text-align:center;">
+        <h1 style="color:#ffffff; font-family: Arial, sans-serif; font-size:24px; letter-spacing:2px; margin:0 0 8px 0;">VANGUARDIA CIENTIFICA</h1>
+        <p style="color:#cdd9e8; font-family: Arial, sans-serif; font-size:13px; margin:0;">Curacion diaria de Ciencias Biologicas y de la Salud</p>
+        <p style="color:#8fa3bd; font-family: Arial, sans-serif; font-size:11px; margin:10px 0 0 0;">{fecha_str}</p>
     </div>
 
-    [DATOS]
-    ''' + datos_cientificos
-    
-    response = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0.2
-    )
-    return response.choices[0].message.content
+    <div style="max-width:700px; margin:0 auto; padding:30px 20px; background-color:#f4f6f8;">
+        {tarjetas_html}
+    </div>
 
-def enviar_correo(contenido_html):
-    print("Estructurando correo electrónico...")
-    remitente = os.environ.get("EMAIL_REMITENTE")
-    password = os.environ.get("EMAIL_PASSWORD")
-    destinatario = os.environ.get("EMAIL_DESTINATARIO")
-    
-    msg = MIMEMultipart('alternative')
-    msg['Subject'] = "📰 Boletín de Vanguardia Científica y Biomédica"
-    msg['From'] = remitente
-    msg['To'] = destinatario
-    
-    html_completo = f"""
-    <html>
-      <body style="background-color: #f4f6f9; font-family: Arial, sans-serif; margin: 0; padding: 20px;">
-        <div style="max-width: 650px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.05);">
-          
-          <div style="background-color: #003366; padding: 30px; text-align: center; color: #ffffff;">
-            <h1 style="margin: 0; font-size: 24px; letter-spacing: 1px;">VANGUARDIA CIENTÍFICA</h1>
-            <p style="margin: 5px 0 0 0; color: #b3ccff; font-size: 14px;">Curación diaria de Ciencias Biológicas y de la Salud</p>
-          </div>
-          
-          <div style="padding: 25px; color: #333333; line-height: 1.6;">
-            {contenido_html}
-          </div>
-          
-          <div style="background-color: #f8f9fa; padding: 20px; text-align: center; border-top: 1px solid #e9ecef; color: #6c757d; font-size: 12px;">
-            <p style="margin: 0 0 5px 0; font-weight: bold; color: #495057;">Boletín Informativo de Divulgación</p>
-            <p style="margin: 0; font-style: italic;">Editado y coordinado por: <strong>LOPEZ HELACIO MAXI JESUS</strong></p>
-            <p style="margin: 5px 0 0 0; font-size: 11px;">Tecnológico Nacional de México | Instituto Tecnológico de Celaya</p>
-            <p style="margin: 15px 0 0 0; color: #adb5bd;">Automatizado mediante GitHub Actions & Groq Llama-3.1 IA</p>
-          </div>
-          
-        </div>
-      </body>
-    </html>
-    """
-    
-    msg.attach(MIMEText(html_completo, 'html'))
-    
-    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-        server.login(remitente, password)
-        server.sendmail(remitente, destinatario, msg.as_string())
-    print("¡Revista enviada con éxito!")
+    <div style="background-color:#1a1a1a; padding:26px 20px; text-align:center; font-family: Arial, sans-serif;">
+        <p style="color:#ffffff; font-size:13px; margin:0 0 6px 0;">Editado y coordinado por: <strong>LOPEZ HELACIO MAXI JESUS</strong></p>
+        <p style="color:#9fb2c9; font-size:12px; margin:0 0 6px 0;">Tecnologico Nacional de Mexico | Instituto Tecnologico de Celaya</p>
+        <p style="color:#6f7f91; font-size:11px; margin:0;">Automatizado mediante GitHub Actions &amp; Groq</p>
+    </div>
+
+</body>
+</html>'''
+
+
+# ==============================================================================
+# 5. ENVIO DE CORREO
+# ==============================================================================
+
+def enviar_correo(html_final, fecha_str):
+    destinatarios = [d.strip() for d in EMAIL_DESTINO.split(",") if d.strip()]
+
+    mensaje = MIMEMultipart("alternative")
+    mensaje["Subject"] = f"Vanguardia Cientifica - Boletin del {fecha_str}"
+    mensaje["From"] = EMAIL_ORIGEN
+    mensaje["To"] = ", ".join(destinatarios)
+
+    mensaje.attach(MIMEText(html_final, "html", "utf-8"))
+
+    with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as servidor:
+        servidor.login(EMAIL_ORIGEN, EMAIL_PASSWORD)
+        servidor.sendmail(EMAIL_ORIGEN, destinatarios, mensaje.as_string())
+
+    print(f"[OK] Correo enviado a: {', '.join(destinatarios)}")
+
+
+# ==============================================================================
+# 6. FLUJO PRINCIPAL
+# ==============================================================================
+
+def main():
+    fecha_str = datetime.now().strftime("%d de %B de %Y")
+
+    print("[INFO] Obteniendo noticias de feeds RSS...")
+    noticias = seleccionar_noticias()
+
+    if not noticias:
+        print("[ERROR] No se obtuvo ninguna noticia valida. Abortando envio.")
+        return
+
+    print(f"[INFO] {len(noticias)} noticias seleccionadas. Procesando con IA...")
+
+    tarjetas = []
+    for i, entrada in enumerate(noticias, start=1):
+        print(f"[INFO] ({i}/{len(noticias)}) Procesando: {entrada['titulo'][:70]}...")
+        titulo_es, resumen_es = resumir_y_traducir_con_ia(entrada)
+
+        tarjeta_html = construir_tarjeta_html(
+            fuente=entrada["fuente"],
+            titulo_es=titulo_es,
+            resumen_es=resumen_es,
+            link=entrada["link"],  # <- link real, intacto, una sola vez
+            imagen=entrada.get("imagen"),  # <- None si no se encontro imagen
+        )
+        tarjetas.append(tarjeta_html)
+
+        time.sleep(1.2)  # pequeño respiro para no saturar el rate limit de Groq
+
+    tarjetas_html = "\n".join(tarjetas)
+    html_final = construir_boletin_completo(tarjetas_html, fecha_str)
+
+    print("[INFO] Enviando boletin por correo...")
+    enviar_correo(html_final, fecha_str)
+
+    print("[OK] Proceso finalizado correctamente.")
+
 
 if __name__ == "__main__":
-    datos = recopilar_noticias()
-    boletin_html = generar_boletin_con_ia(datos)
-    enviar_correo(boletin_html)
+    main()
