@@ -33,7 +33,7 @@ def generar_boletin_con_ia(datos_cientificos):
     )
 
     response = client.chat.completions.create(
-        model="llama3-8b-8192", # El modelo gratuito de Meta en Groq, ideal para resúmenes rápidos
+        model="llama-3.1-8b-instant", # El modelo gratuito de Meta en Groq, ideal para resúmenes rápidos
         messages=[
             {"role": "system", "content": prompt_sistema},
             {"role": "user", "content": f"Aquí están los datos del día:\n\n{datos_cientificos}"}
