@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 ================================================================================
- VANGUARDIA CIENTIFICA - Boletin automatizado de divulgacion cientifica
+ DNADA - Boletin de divulgacion cientifica
 ================================================================================
 Editado y coordinado por: LOPEZ HELACIO MAXI JESUS
 Tecnologico Nacional de Mexico | Instituto Tecnologico de Celaya
@@ -52,12 +52,12 @@ GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 
-EMAIL_ORIGEN = os.environ["EMAIL_ORIGEN"]
+EMAIL_ORIGEN = os.environ["EMAIL_REMITENTE"]
 EMAIL_PASSWORD = os.environ["EMAIL_PASSWORD"]
 # Puede ser un solo correo o varios separados por coma: "a@x.com,b@y.com"
-EMAIL_DESTINO = os.environ["EMAIL_DESTINO"]
+EMAIL_DESTINO = os.environ["EMAIL_DESTINATARIO"]
 SMTP_SERVER = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
-SMTP_PORT = int(os.environ.get("SMTP_PORT", "465"))
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "465")
 
 MIN_NOTICIAS_MUNDIALES = 4
 MIN_NOTICIAS_MEXICO = 2
