@@ -43,13 +43,14 @@ def generar_boletin_con_ia(datos_cientificos):
     - Genera ÚNICAMENTE código HTML funcional para el cuerpo del correo.
     - NO uses etiquetas ```html, ni comillas invertidas, ni texto introductorio o aclaraciones fuera de las etiquetas HTML.
     - Prohibido usar Markdown: NO uses asteriscos (**) ni numerales (#). 
+    - Reemplaza el texto "URL_DE_LA_NOTICIA" por el Link real provisto abajo.
     - Para cada noticia, crea un contenedor estructurado:
       <div style="background: #ffffff; padding: 20px; margin-bottom: 25px; border-radius: 8px; border-left: 5px solid #003366; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
         <span style="color: #6c757d; font-size: 12px; font-weight: bold; text-transform: uppercase;">Noticia de Fuente</span>
         <h3 style="color: #003366; margin: 5px 0 10px 0; font-size: 18px;">Título Traducido a Español</h3>
         <p style="color: #495057; font-size: 14px; line-height: 1.5;">Resumen analítico y divulgativo en español de 3 o 4 líneas.</p>
-        <a href="LINK_AQUÍ" style="display: inline-block; background: #003366; color: #ffffff; padding: 8px 16px; text-decoration: none; border-radius: 4px; font-size: 12px; margin-top: 10px;">Leer Artículo Original →</a>
-      </div>
+<a href="URL_DE_LA_NOTICIA" style="display: inline-block; background: #003366; color: #ffffff; padding: 8px 16px; text-decoration: none; border-radius: 4px; font-size: 12px; margin-top: 10px;">Leer Artículo Original →</a>
+</div>
 
     [DATOS_CRUDOS]
     {datos_cientificos}
