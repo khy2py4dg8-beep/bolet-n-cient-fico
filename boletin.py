@@ -46,12 +46,10 @@ def generar_boletin_con_ia(datos_cientificos):
     - Reemplaza el texto "URL_DE_LA_NOTICIA" por el Link real provisto abajo.
     - Para cada noticia, crea un contenedor estructurado:
       <div style="background: #ffffff; padding: 20px; margin-bottom: 25px; border-radius: 8px; border-left: 5px solid #003366; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
-        <span style="color: #6c757d; font-size: 12px; font-weight: bold; text-transform: uppercase;">Noticia de Fuente</span>
-        <h3 style="color: #003366; margin: 5px 0 10px 0; font-size: 18px;">Título Traducido a Español</h3>
-        <p style="color: #495057; font-size: 14px; line-height: 1.5;">Resumen analítico y divulgativo en español de 3 o 4 líneas.</p>
-<a href="URL_DE_LA_NOTICIA" style="display: inline-block; background: #003366; color: #ffffff; padding: 8px 16px; text-decoration: none; border-radius: 4px; font-size: 12px; margin-top: 10px;">Leer Artículo Original →</a>
-</div>
-
+      <span style="color: #6c757d; font-size: 12px; font-weight: bold; text-transform: uppercase;">Noticia de Fuente</span>
+      <h3 style="color: #003366; margin: 5px 0 10px 0; font-size: 18px;">Título Traducido a Español</h3>
+      <p style="color: #495057; font-size: 14px; line-height: 1.5;">Resumen analítico y divulgativo en español de 3 o 4 líneas.</p>
+    </div>
     [DATOS_CRUDOS]
     {datos_cientificos}
     """
@@ -118,4 +116,14 @@ def enviar_correo(contenido_html):
 if __name__ == "__main__":
     datos = recopilar_noticias()
     boletin_html = generar_boletin_con_ia(datos)
+    
+    # Python inyecta los links reales en las tarjetas generadas por la IA
+    for fuente, url in FEEDS.items():
+        feed = feedparser.parse(url)
+        for entrada in feed.entries[:3]:
+            # Creamos el botón real con el enlace directo del RSS
+            boton_real = f'<br><a href="{entrada.link}" target="_blank" style="display: inline-block; background: #003366; color: #ffffff; padding: 8px 16px; text-decoration: none; border-radius: 4px; font-size: 12px; margin-top: 10px; font-family: Arial, sans-serif; font-weight: bold;">Leer Artículo Original →</a></div>'
+            # Reemplazamos el cierre del contenedor para meter el botón antes de que se cierre la tarjeta
+            boletin_html = boletin_html.replace('</div>', boton_real, 1)
+
     enviar_correo(boletin_html)
