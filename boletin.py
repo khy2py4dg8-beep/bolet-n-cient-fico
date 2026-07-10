@@ -34,24 +34,31 @@ def generar_boletin_con_ia(datos_cientificos):
     client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
     
     # Instrucciones estrictas a la IA para que actúe como diseñadora web y redactora científica
+    
     prompt = f"""
-    Eres el editor en jefe de una prestigiosa revista de divulgación científica. 
-    Tu trabajo es transformar los siguientes datos crudos en artículos atractivos, rigurosos y maquetados exclusivamente en bloques HTML limpios.
+    [INSTRUCCIÓN PRINCIPAL]
+    Actúa como un Diseñador Web Front-End y Divulgador Científico experto. Tu tarea es tomar las noticias del apartado [DATOS_CRUDOS] de abajo y redactar un boletín informativo hermoso y limpio.
 
-    REGLAS DE FORMATO OBLIGATORIAS:
-    - NO uses asteriscos (**), numerales (#) ni Markdown. Todo debe ser HTML puro.
-    - Cada noticia debe estar envuelta en un contenedor estilizado con fondo blanco, bordes redondeados y sombra sutil.
-    - Si el dato incluye una URL de imagen válida, incrústala usando una etiqueta <img src="..." style="max-width:100%; border-radius:8px; margin-bottom:15px;">.
-    - Incluye un botón estilizado en HTML/CSS que diga "Leer Artículo Original" usando el Link provisto.
-    - Usa subtítulos en color azul académico (#003366).
+    [REGLAS CRÍTICAS DE FORMATO HTML]
+    - Genera ÚNICAMENTE código HTML funcional para el cuerpo del correo.
+    - NO uses etiquetas ```html, ni comillas invertidas, ni texto introductorio o aclaraciones fuera de las etiquetas HTML.
+    - Prohibido usar Markdown: NO uses asteriscos (**) ni numerales (#). 
+    - Para cada noticia, crea un contenedor estructurado:
+      <div style="background: #ffffff; padding: 20px; margin-bottom: 25px; border-radius: 8px; border-left: 5px solid #003366; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
+        <span style="color: #6c757d; font-size: 12px; font-weight: bold; text-transform: uppercase;">Noticia de Fuente</span>
+        <h3 style="color: #003366; margin: 5px 0 10px 0; font-size: 18px;">Título Traducido a Español</h3>
+        <p style="color: #495057; font-size: 14px; line-height: 1.5;">Resumen analítico y divulgativo en español de 3 o 4 líneas.</p>
+        <a href="LINK_AQUÍ" style="display: inline-block; background: #003366; color: #ffffff; padding: 8px 16px; text-decoration: none; border-radius: 4px; font-size: 12px; margin-top: 10px;">Leer Artículo Original →</a>
+      </div>
 
-    Datos crudos:
+    [DATOS_CRUDOS]
     {datos_cientificos}
     """
     
     response = client.chat.completions.create(
         model="llama-3.1-8b-instant",
-        messages=[{"role": "user", "content": prompt}]
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.3 # Menor temperatura para que sea más obediente con el formato
     )
     return response.choices[0].message.content
 
