@@ -57,8 +57,7 @@ EMAIL_PASSWORD = os.environ["EMAIL_PASSWORD"]
 # Puede ser un solo correo o varios separados por coma: "a@x.com,b@y.com"
 EMAIL_DESTINO = os.environ["EMAIL_DESTINATARIO"]
 SMTP_SERVER = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
-SMTP_PORT = int(os.environ.get("SMTP_PORT", "465")
-
+SMTP_PORT = int(os.environ.get("SMTP_PORT", "465"))
 MIN_NOTICIAS_MUNDIALES = 4
 MIN_NOTICIAS_MEXICO = 2
 MIN_TOTAL = 6
