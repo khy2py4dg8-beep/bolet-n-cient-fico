@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeNadA | Portal de Noticias Científicas</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --accent-color: #38bdf8;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --border-color: #334155;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+            border-bottom: 1px solid var(--border-color);
+            padding: 2.5rem 1rem 1.5rem 1rem;
+            text-align: center;
+        }
+
+        .brand {
+            font-size: 2.8rem;
+            font-weight: 800;
+            letter-spacing: -1px;
+            margin-bottom: 0.3rem;
+        }
+
+        .brand span {
+            color: var(--accent-color);
+            text-decoration: underline;
+        }
+
+        .subtitle {
+            color: var(--text-secondary);
+            font-size: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .controls {
+            max-width: 800px;
+            margin: 0 auto;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+            padding: 0 1rem;
+        }
+
+        .search-bar {
+            flex: 1 1 300px;
+            padding: 10px 16px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            background: #1e293b;
+            color: #fff;
+            font-size: 0.95rem;
+            outline: none;
+        }
+
+        .search-bar:focus {
+            border-color: var(--accent-color);
+        }
+
+        .category-select {
+            padding: 10px 16px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            background: #1e293b;
+            color: #fff;
+            font-size: 0.95rem;
+            outline: none;
+            cursor: pointer;
+        }
+
+        main {
+            max-width: 1000px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+            flex: 1;
+            width: 100%;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.5rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            transition: transform 0.2s ease, border-color 0.2s ease;
+        }
+
+        .card:hover {
+            transform: translateY(-4px);
+            border-color: var(--accent-color);
+        }
+
+        .badge {
+            align-self: flex-start;
+            background: rgba(56, 189, 248, 0.1);
+            color: var(--accent-color);
+            font-size: 0.75rem;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 20px;
+            text-transform: uppercase;
+            margin-bottom: 0.8rem;
+        }
+
+        .card-title {
+            font-size: 1.15rem;
+            font-weight: 700;
+            line-height: 1.4;
+            margin-bottom: 0.8rem;
+            color: var(--text-primary);
+        }
+
+        .card-summary {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            line-height: 1.6;
+            margin-bottom: 1.2rem;
+        }
+
+        .card-footer {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            border-top: 1px solid var(--border-color);
+            padding-top: 0.8rem;
+        }
+
+        .card-footer a {
+            color: var(--accent-color);
+            text-decoration: none;
+            font-weight: 600;
+        }
+
+        .card-footer a:hover {
+            text-decoration: underline;
+        }
+
+        .empty-state {
+            text-align: center;
+            color: var(--text-secondary);
+            padding: 3rem 0;
+            font-size: 1.1rem;
+        }
+
+        footer {
+            text-align: center;
+            padding: 2rem;
+            border-top: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            margin-top: auto;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1 class="brand">DeNad<span>A</span></h1>
+        <p class="subtitle">Archivo Histórico de Divulgación Científica</p>
+        
+        <div class="controls">
+            <input type="text" id="searchInput" class="search-bar" placeholder="Buscar por palabra clave o título...">
+            <select id="categoryFilter" class="category-select">
+                <option value="ALL">Todas las categorías</option>
+            </select>
+        </div>
+    </header>
+
+    <main>
+        <div id="newsGrid" class="grid"></div>
+        <div id="emptyMessage" class="empty-state" style="display: none;">No se encontraron noticias que coincidan con la búsqueda.</div>
+    </main>
+
+    <footer>
+        <p>DeNadA Pipeline • Maxi Jesús López Helacio | Instituto Tecnológico de Celaya</p>
+    </footer>
+
+    <script>
+        let todasLasNoticias = [];
+
+        async function cargarHistorico() {
+            try {
+                const response = await fetch('./historico_noticias.json');
+                if (!response.ok) throw new Error("No se pudo cargar el archivo de histórico.");
+                todasLasNoticias = await response.json();
+                
+                // Ordenar por fecha descendente
+                todasLasNoticias.reverse();
+                
+                poblarCategorias();
+                renderizarNoticias(todasLasNoticias);
+            } catch (error) {
+                console.error("Error al cargar las noticias:", error);
+                document.getElementById('newsGrid').innerHTML = '<p class="empty-state">Aún no hay historias registradas en el histórico.</p>';
+            }
+        }
+
+        function poblarCategorias() {
+            const select = document.getElementById('categoryFilter');
+            const categorias = [...new Set(todasLasNoticias.map(n => n.categoria || 'General'))];
+            
+            categorias.forEach(cat => {
+                const option = document.createElement('option');
+                option.value = cat;
+                option.textContent = cat;
+                select.appendChild(option);
+            });
+        }
+
+        function renderizarNoticias(noticias) {
+            const grid = document.getElementById('newsGrid');
+            const emptyMessage = document.getElementById('emptyMessage');
+            grid.innerHTML = '';
+
+            if (noticias.length === 0) {
+                emptyMessage.style.display = 'block';
+                return;
+            }
+            emptyMessage.style.display = 'none';
+
+            noticias.forEach(item => {
+                const card = document.createElement('article');
+                card.className = 'card';
+                card.innerHTML = `
+                    <div>
+                        <span class="badge">${item.categoria || 'Ciencia'}</span>
+                        <h2 class="card-title">${item.titulo}</h2>
+                        <p class="card-summary">${item.resumen}</p>
+                    </div>
+                    <div class="card-footer">
+                        <span>${item.fecha} • ${item.fuente}</span>
+                        <a href="${item.url}" target="_blank" rel="noopener">Leer noticia &rarr;</a>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+        }
+
+        function filtrarNoticias() {
+            const busqueda = document.getElementById('searchInput').value.toLowerCase();
+            const categoria = document.getElementById('categoryFilter').value;
+
+            const filtradas = todasLasNoticias.filter(noticia => {
+                const coincideTexto = noticia.titulo.toLowerCase().includes(busqueda) || 
+                                      noticia.resumen.toLowerCase().includes(busqueda);
+                const coincideCategoria = categoria === 'ALL' || noticia.categoria === categoria;
+                return coincideTexto && coincideCategoria;
+            });
+
+            renderizarNoticias(filtradas);
+        }
+
+        document.getElementById('searchInput').addEventListener('input', filtrarNoticias);
+        document.getElementById('categoryFilter').addEventListener('change', filtrarNoticias);
+
+        // Cargar al iniciar
+        cargarHistorico();
+    </script>
+</body>
+</html>
