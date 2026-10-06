@@ -1,431 +1,257 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-================================================================================
- DeNadA - Divulgación Científica
-================================================================================
-Editado y coordinado por: LOPEZ HELACIO MAXI JESUS
-Tecnológico Nacional de México | Instituto Tecnológico de Celaya
-Automatizado mediante GitHub Actions & Groq
-"""
-
 import os
-import re
 import json
-import time
 import smtplib
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from datetime import datetime
-
-import requests
 import feedparser
-
-# ==============================================================================
-# 1. CONFIGURACIÓN GENERAL
-# ==============================================================================
-
-GROQ_API_KEY = os.environ["GROQ_API_KEY"]
-GROQ_MODEL = os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile")
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-
-EMAIL_ORIGEN = os.environ["EMAIL_REMITENTE"]
-EMAIL_PASSWORD = os.environ["EMAIL_PASSWORD"]
-EMAIL_DESTINO = os.environ["EMAIL_DESTINATARIO"]
-SMTP_SERVER = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
-SMTP_PORT = int(os.environ.get("SMTP_PORT", "465"))
-
-MIN_NOTICIAS_MUNDIALES = 4
-MIN_NOTICIAS_MEXICO = 2
-MIN_TOTAL = 6
-
-HEADERS_HTTP = {
-    "User-Agent": (
-        "Mozilla/5.0 (compatible; DeNadABoletin/2.0; "
-        "+https://github.com/)"
-    )
-}
-
-# Fuentes de impacto mundial (ciencias biológicas y de la salud)
-FEEDS_MUNDIALES = {
-    "NATURE": "https://www.nature.com/nature.rss",
-    "SCIENCEDAILY": "https://www.sciencedaily.com/rss/top/science.xml",
-    "EUREKALERT": "https://www.eurekalert.org/rss/health_medicine.xml",
-    "NIH": "https://www.nih.gov/news-events/news-releases/feed",
-    "WHO": "https://www.who.int/rss-feeds/news-english.xml",
-}
-
-# Fuentes específicas de México
-FEEDS_MEXICO = {
-    "GACETA UNAM": "https://www.gaceta.unam.mx/feed/",
-    "CIENCIA UNAM": "https://ciencia.unam.mx/rss",
-}
-
-
-# ==============================================================================
-# 2. OBTENCIÓN Y ORDENAMIENTO DE NOTICIAS (RSS)
-# ==============================================================================
-
-def extraer_imagen(entry):
-    try:
-        media_content = entry.get("media_content")
-        if media_content:
-            url = (media_content[0].get("url") or "").strip()
-            if url:
-                return url
-
-        media_thumbnail = entry.get("media_thumbnail")
-        if media_thumbnail:
-            url = (media_thumbnail[0].get("url") or "").strip()
-            if url:
-                return url
-
-        for link in entry.get("links", []) or []:
-            tipo = (link.get("type") or "")
-            if tipo.startswith("image/"):
-                href = (link.get("href") or "").strip()
-                if href:
-                    return href
-
-        contenido_crudo = entry.get("summary") or ""
-        if not contenido_crudo and entry.get("content"):
-            try:
-                contenido_crudo = entry["content"][0].get("value", "")
-            except Exception:
-                contenido_crudo = ""
-
-        match = re.search(r'<img[^>]+src=["\']([^"\']+)["\']', contenido_crudo)
-        if match:
-            return match.group(1).strip()
-
-    except Exception as e:
-        print(f"[AVISO] Error al buscar imagen: {e}")
-
-    return None
-
-
-def es_url_imagen_valida(url):
-    if not url:
-        return False
-    return url.startswith("http://") or url.startswith("https://")
-
-
-def obtener_entradas_de_feeds(feeds_dict, max_por_feed=3):
-    entradas = []
-    for fuente, url in feeds_dict.items():
-        try:
-            resp = requests.get(url, headers=HEADERS_HTTP, timeout=15)
-            resp.raise_for_status()
-            parsed = feedparser.parse(resp.content)
-
-            entradas_ordenadas = parsed.entries
-            if entradas_ordenadas and hasattr(entradas_ordenadas[0], 'published_parsed'):
-                try:
-                    entradas_ordenadas = sorted(
-                        entradas_ordenadas,
-                        key=lambda x: x.published_parsed if x.get('published_parsed') else time.gmtime(0),
-                        reverse=True
-                    )
-                except Exception:
-                    pass
-
-            for entry in entradas_ordenadas[:max_por_feed]:
-                link = (entry.get("link") or "").strip()
-                titulo = (entry.get("title") or "").strip()
-                resumen_original = (
-                    entry.get("summary") or entry.get("description") or ""
-                ).strip()
-                resumen_original = re.sub(r"<[^>]+>", "", resumen_original)
-
-                imagen = extraer_imagen(entry)
-                if not es_url_imagen_valida(imagen):
-                    imagen = None
-
-                if link and titulo:
-                    entradas.append({
-                        "fuente": fuente,
-                        "titulo": titulo,
-                        "resumen_original": resumen_original[:800],
-                        "link": link,
-                        "imagen": imagen,
-                    })
-        except Exception as e:
-            print(f"[AVISO] No se pudo leer el feed '{fuente}': {e}")
-            continue
-
-    return entradas
-
-
-def seleccionar_noticias():
-    entradas_mundiales = obtener_entradas_de_feeds(FEEDS_MUNDIALES)
-    entradas_mexico = obtener_entradas_de_feeds(FEEDS_MEXICO)
-
-    vistos = set()
-
-    def sin_duplicados(lista):
-        unicas = []
-        for e in lista:
-            if e["link"] not in vistos:
-                vistos.add(e["link"])
-                unicas.append(e)
-        return unicas
-
-    entradas_mundiales = sin_duplicados(entradas_mundiales)
-    entradas_mexico = sin_duplicados(entradas_mexico)
-
-    seleccion_mexico = entradas_mexico[:MIN_NOTICIAS_MEXICO]
-    seleccion_mundial = entradas_mundiales[:MIN_NOTICIAS_MUNDIALES]
-
-    seleccion_final = seleccion_mundial + seleccion_mexico
-
-    if len(seleccion_final) < MIN_TOTAL:
-        restantes = [
-            e for e in (entradas_mundiales + entradas_mexico)
-            if e["link"] not in {x["link"] for x in seleccion_final}
-        ]
-        faltan = MIN_TOTAL - len(seleccion_final)
-        seleccion_final += restantes[:faltan]
-
-    return seleccion_final
-
-
-# ==============================================================================
-# 3. PROCESAMIENTO CON IA (Groq)
-# ==============================================================================
-
-SYSTEM_PROMPT = '''Eres un traductor y divulgador científico experto en ciencias biológicas y de la salud para el proyecto DeNadA.
-
-Tu única tarea es tomar un título y un resumen y devolver EXCLUSIVAMENTE un objeto JSON válido:
-{"titulo_es": "...", "resumen_es": "..."}
-
-Reglas estrictas:
-- "titulo_es": traducción clara y atractiva al español neutro.
-- "resumen_es": resumen divulgativo de 3 a 4 líneas en español neutro.
-- No incluyas enlaces ni etiquetas HTML.
-'''
-
-
-def limpiar_posible_markdown(texto):
-    if not texto:
-        return ""
-    texto = re.sub(r"```[a-zA-Z]*", "", texto)
-    texto = texto.replace("```", "")
-    texto = texto.replace("**", "")
-    texto = re.sub(r"(?m)^#+\s*", "", texto)
-    return texto.strip()
-
-
-def extraer_json(contenido_ia):
-    contenido_ia = contenido_ia.strip()
-    contenido_ia = re.sub(r"^```[a-zA-Z]*", "", contenido_ia)
-    contenido_ia = contenido_ia.replace("```", "").strip()
-
-    try:
-        return json.loads(contenido_ia)
-    except json.JSONDecodeError:
-        match = re.search(r"\{.*\}", contenido_ia, re.DOTALL)
-        if match:
-            return json.loads(match.group(0))
-        raise
-
-
-def resumir_y_traducir_con_ia(entrada, reintentos=2):
-    mensaje_usuario = (
-        f"Título original: {entrada['titulo']}\n"
-        f"Resumen original: {entrada['resumen_original']}\n"
-        f"Fuente: {entrada['fuente']}"
-    )
-
-    payload = {
-        "model": GROQ_MODEL,
-        "messages": [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": mensaje_usuario},
-        ],
-        "temperature": 0.4,
-        "response_format": {"type": "json_object"},
-    }
-
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json",
-    }
-
-    for intento in range(reintentos + 1):
-        try:
-            resp = requests.post(GROQ_URL, headers=headers, json=payload, timeout=30)
-            resp.raise_for_status()
-            data = resp.json()
-            contenido = data["choices"][0]["message"]["content"]
-            resultado = extraer_json(contenido)
-
-            titulo_es = limpiar_posible_markdown(resultado.get("titulo_es", "")) or entrada["titulo"]
-            resumen_es = limpiar_posible_markdown(resultado.get("resumen_es", "")) or entrada["resumen_original"]
-            return titulo_es, resumen_es
-
-        except Exception as e:
-            print(f"[AVISO] Intento {intento + 1} falló para '{entrada['titulo'][:60]}...': {e}")
-            time.sleep(2)
-
-    return entrada["titulo"], entrada["resumen_original"]
-
-
-# ==============================================================================
-# 4. CONSTRUCCIÓN DEL HTML (DISEÑO DeNadA)
-# ==============================================================================
-
-def construir_tarjeta_html(fuente, titulo_es, resumen_es, link, imagen=None):
-    fuente_mayus = fuente.upper()
-
-    imagen_html = ""
-    if imagen:
-        imagen_html = (
-            f'<img src="{imagen}" alt="{titulo_es}" '
-            f'style="max-width:100%; height:auto; border-radius:6px; '
-            f'margin-bottom:14px; display:block;">'
-        )
-
-    return f'''
-    <div style="background-color:#ffffff; border:1px solid #d9d9d9; border-left:5px solid #00D2FF; border-radius:8px; padding:22px; margin-bottom:22px; font-family: Georgia, 'Times New Roman', serif;">
-        {imagen_html}
-        <p style="color:#003366; font-size:12px; font-weight:bold; letter-spacing:1.5px; margin:0 0 10px 0; text-transform:uppercase;">{fuente_mayus}</p>
-        <h2 style="color:#1a1a1a; font-size:19px; margin:0 0 12px 0; line-height:1.35;">{titulo_es}</h2>
-        <p style="color:#3a3a3a; font-size:15px; line-height:1.6; margin:0 0 18px 0;">{resumen_es}</p>
-        <a href="{link}" target="_blank" style="display:inline-block; background-color:#001F3F; color:#00D2FF; text-decoration:none; padding:10px 20px; border-radius:4px; font-size:13px; font-weight:bold; font-family: Arial, sans-serif;">Leer Artículo Original &rarr;</a>
-    </div>
-    '''
-
-
-def construir_boletin_completo(tarjetas_html, fecha_str):
-    return f'''<!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="UTF-8">
-<title>DeNadA - Divulgación Científica</title>
-</head>
-<body style="margin:0; padding:0; background-color:#eef1f4;">
-
-    <!-- ENCABEZADO CON LOGO DE "DeNadA" -->
-    <div style="background-color:#001F3F; padding:30px 20px; text-align:center; border-bottom: 4px solid #00D2FF;">
-      <svg width="60" height="60" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle; margin-bottom:10px;">
-        <circle cx="50" cy="50" r="45" stroke="#00D2FF" stroke-width="3" stroke-dasharray="6 6" />
-        <ellipse cx="50" cy="50" rx="35" ry="12" stroke="#00D2FF" stroke-width="3" transform="rotate(30 50 50)"/>
-        <ellipse cx="50" cy="50" rx="35" ry="12" stroke="#ffffff" stroke-width="3" transform="rotate(-30 50 50)"/>
-        <circle cx="50" cy="50" r="8" fill="#00D2FF"/>
-      </svg>
-      <h1 style="color:#ffffff; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size:34px; font-weight:800; letter-spacing:3px; margin:5px 0 0 0;">
-        De<span style="color:#00D2FF;">NAD</span>A
-      </h1>
-      <p style="color:#B0C4DE; font-family: Arial, sans-serif; font-size:12px; letter-spacing:2px; text-transform:uppercase; margin:5px 0 0 0; font-weight:600;">
-        Divulgación Científica
-      </p>
-      <p style="color:#8fa3bd; font-family: Arial, sans-serif; font-size:11px; margin:10px 0 0 0;">{fecha_str}</p>
-    </div>
-
-    <!-- CUERPO DE NOTICIAS -->
-    <div style="max-width:700px; margin:0 auto; padding:30px 20px; background-color:#f4f6f8;">
-        {tarjetas_html}
-    </div>
-
-    <!-- PIE DE PÁGINA -->
-    <div style="background-color:#001F3F; padding:26px 20px; text-align:center; font-family: Arial, sans-serif; border-top: 1px solid #00D2FF;">
-        <p style="color:#ffffff; font-size:13px; margin:0 0 6px 0;">Editado y coordinado por: <strong>LOPEZ HELACIO MAXI JESUS</strong></p>
-        <p style="color:#9fb2c9; font-size:12px; margin:0 0 6px 0;">Tecnológico Nacional de México | Instituto Tecnológico de Celaya</p>
-        <p style="color:#6f7f91; font-size:11px; margin:0;">Proyecto DeNadA &bull; GitHub Actions &amp; Groq</p>
-    </div>
-
-</body>
-</html>'''
-
-
-# ==============================================================================
-# 5. ENVÍO Y EJECUCIÓN
-# ==============================================================================
-
-def enviar_correo(html_final, fecha_str):
-    destinatarios = [d.strip() for d in EMAIL_DESTINO.split(",") if d.strip()]
-
-    mensaje = MIMEMultipart("alternative")
-    mensaje["Subject"] = f"DeNadA - Boletín Científico del {fecha_str}"
-    mensaje["From"] = EMAIL_ORIGEN
-    mensaje["To"] = ", ".join(destinatarios)
-
-    mensaje.attach(MIMEText(html_final, "html", "utf-8"))
-
-    with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as servidor:
-        servidor.login(EMAIL_ORIGEN, EMAIL_PASSWORD)
-        servidor.sendmail(EMAIL_ORIGEN, destinatarios, mensaje.as_string())
-
-    print(f"[OK] Correo enviado a: {', '.join(destinatarios)}")
- def guardar_en_historico(noticias_procesadas):
-    """Guarda un registro JSON con todas las noticias procesadas por fecha
-    para alimentar la base de datos pública y el portal de DeNadA.
-    """
-    archivo_json = "historico_noticias.json"
+from datetime import datetime
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from groq import Groq
+
+# ==========================================
+# CONFIGURACIÓN Y FUENTES RSS
+# ==========================================
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
+EMAIL_REMITENTE = os.environ.get("EMAIL_REMITENTE")
+EMAIL_PASSWORD = os.environ.get("EMAIL_PASSWORD")
+EMAIL_DESTINATARIO = os.environ.get("EMAIL_DESTINATARIO")
+
+FUENTES_RSS = [
+    "https://rss.sciencedaily.com/all.xml",
+    "https://www.nature.com/nature.rss",
+    "https://www.wired.com/feed/category/science/latest/rss",
+    "https://eluniversal.com.mx/arc/outboundfeeds/rss/ciencia/"
+]
+
+# ==========================================
+# BASE DE DATOS Y GUARDADO EN JSON
+# ==========================================
+def guardar_en_historico(noticias_procesadas, archivo_json="historico_noticias.json"):
+    """Guarda y acumula las noticias procesadas en un archivo JSON local."""
     historico = []
-
-    # Cargar historial existente si existe
+    
+    # 1. Cargar archivo existente si existe
     if os.path.exists(archivo_json):
         try:
             with open(archivo_json, "r", encoding="utf-8") as f:
                 historico = json.load(f)
         except Exception as e:
-            print(f"[AVISO] No se pudo leer el historial previo: {e}")
+            print(f"[WARN] No se pudo leer {archivo_json}, se creará uno nuevo. Error: {e}")
 
-    # Nueva entrada para hoy
-    registro_hoy = {
-        "fecha": datetime.now().strftime("%Y-%m-%d"),
-        "fecha_texto": datetime.now().strftime("%d de %B de %Y"),
-        "noticias": noticias_procesadas
-    }
+    # 2. Convertir y agregar noticias con su timestamp
+    fecha_hoy = datetime.now().strftime("%Y-%m-%d")
+    for noticia in noticias_procesadas:
+        registro = {
+            "fecha": fecha_hoy,
+            "titulo": noticia.get("titulo", ""),
+            "resumen": noticia.get("resumen", ""),
+            "categoria": noticia.get("categoria", "Ciencia"),
+            "fuente": noticia.get("fuente", "Desconocida"),
+            "url": noticia.get("link", "#")
+        }
+        historico.append(registro)
 
-    # Evitar duplicados del mismo día
-    historico = [r for r in historico if r["fecha"] != registro_hoy["fecha"]]
-    historico.insert(0, registro_hoy)  # Lo más reciente primero
+    # 3. Reescribir la base de datos actualizada
+    try:
+        with open(archivo_json, "w", encoding="utf-8") as f:
+            json.dump(historico, f, ensure_ascii=False, indent=2)
+        print(f"[ÉXITO] Se guardaron {len(noticias_procesadas)} noticias en {archivo_json}")
+    except Exception as e:
+        print(f"[ERROR] Error al escribir en {archivo_json}: {e}")
 
-    # Guardar archivo actualizado
-    with open(archivo_json, "w", encoding="utf-8") as f:
-        json.dump(historico, f, ensure_ascii=False, indent=2)
+# ==========================================
+# EXTRACCIÓN DE NOTICIAS
+# ==========================================
+def obtener_noticias():
+    """Lee los feeds RSS y recupera las noticias más recientes."""
+    noticias = []
+    for url in FUENTES_RSS:
+        try:
+            feed = feedparser.parse(url)
+            fuente = feed.feed.title if hasattr(feed.feed, 'title') else "Fuente Científica"
+            for entry in feed.entries[:3]:  # Tomar hasta 3 por fuente
+                noticias.append({
+                    "titulo": entry.title,
+                    "resumen": entry.get("summary", entry.get("description", "")),
+                    "link": entry.link,
+                    "fuente": fuente
+                })
+        except Exception as e:
+            print(f"[WARN] Error al procesar fuente {url}: {e}")
+    return noticias
 
-    print("[OK] Base de datos 'historico_noticias.json' actualizada correctamente.")
+# ==========================================
+# PROCESAMIENTO CON GROQ (LLaMA 3.3 70B)
+# ==========================================
+def sintetizar_con_groq(noticias):
+    """Sintetiza y clasifica las noticias con IA."""
+    if not GROQ_API_KEY:
+        print("[ERROR] Falta GROQ_API_KEY en las variables de entorno.")
+        return []
 
+    client = Groq(api_key=GROQ_API_KEY)
+    noticias_procesadas = []
 
-def main():
-    fecha_str = datetime.now().strftime("%d de %B de %Y")
+    for idx, noticia in enumerate(noticias[:5]):  # Limite a las 5 mejores noticias
+        prompt = f"""
+Eres el editor principal del boletín científico "DeNadA". 
+Sintetiza la siguiente noticia de ciencia/tecnología en español en un párrafo directo, interesante y accesible.
+Clasifícala en una categoría (ej. Biotecnología, Neurociencia, Astronomía, Genómica, Medicina).
 
-    print("[INFO] Obteniendo noticias de feeds RSS...")
-    noticias = seleccionar_noticias()
+Título: {noticia['titulo']}
+Texto: {noticia['resumen']}
 
-    if not noticias:
-        print("[ERROR] No se obtuvo ninguna noticia válida.")
+Responde EXCLUSIVAMENTE en formato JSON válido como este:
+{{
+  "titulo_es": "Título traducido o sintetizado en español",
+  "resumen_es": "Resumen claro y fascinante en 2 o 3 oraciones.",
+  "categoria": "Categoría asignada"
+}}
+"""
+        try:
+            response = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                response_format={"type": "json_object"}
+            )
+            
+            datos = json.loads(response.choices[0].message.content)
+            noticias_procesadas.append({
+                "titulo": datos.get("titulo_es", noticia['titulo']),
+                "resumen": datos.get("resumen_es", noticia['resumen']),
+                "categoria": datos.get("categoria", "Ciencia"),
+                "fuente": noticia['fuente'],
+                "link": noticia['link']
+            })
+        except Exception as e:
+            print(f"[WARN] Error procesando noticia con Groq: {e}")
+            # Fallback en caso de fallo de IA
+            noticias_procesadas.append({
+                "titulo": noticia['titulo'],
+                "resumen": noticia['resumen'][:200] + "...",
+                "categoria": "Ciencia",
+                "fuente": noticia['fuente'],
+                "link": noticia['link']
+            })
+
+    return noticias_procesadas
+
+# ==========================================
+# CONSTRUCCIÓN DE HTML Y PLANTILLA
+# ==========================================
+def generar_tarjeta_html(noticia):
+    """Genera una tarjeta individual para el correo."""
+    return f"""
+    <div style="background: #ffffff; border-radius: 12px; padding: 20px; margin-bottom: 20px; border-left: 5px solid #0052cc; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
+        <span style="background: #e6f0ff; color: #0052cc; font-size: 12px; font-weight: bold; padding: 4px 10px; border-radius: 20px; text-transform: uppercase;">
+            {noticia['categoria']}
+        </span>
+        <h3 style="color: #1e293b; font-size: 18px; margin: 12px 0 8px 0; line-height: 1.4;">
+            {noticia['titulo']}
+        </h3>
+        <p style="color: #475569; font-size: 14px; line-height: 1.6; margin-bottom: 14px;">
+            {noticia['resumen']}
+        </p>
+        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #64748b;">
+            <span>Fuente: <strong>{noticia['fuente']}</strong></span>
+            <a href="{noticia['link']}" target="_blank" style="color: #0052cc; font-weight: bold; text-decoration: none;">Leer más &rarr;</a>
+        </div>
+    </div>
+    """
+
+def construir_boletin_completo(tarjetas_html, fecha_str):
+    """Genera la estructura HTML global con la marca DeNadA."""
+    return f"""
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <style>
+            body {{ font-family: 'Segoe UI', Helvetica, Arial, sans-serif; background-color: #f8fafc; margin: 0; padding: 0; }}
+            .container {{ max-width: 650px; margin: 0 auto; padding: 20px; }}
+            .header {{ background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); color: #ffffff; padding: 30px; text-align: center; border-radius: 16px 16px 0 0; }}
+            .brand {{ font-size: 36px; font-weight: 800; letter-spacing: 1px; margin: 0; color: #ffffff; }}
+            .brand span {{ color: #38bdf8; text-decoration: underline; }}
+            .subtitle {{ color: #94a3b8; font-size: 14px; margin-top: 5px; }}
+            .content {{ background: #f1f5f9; padding: 20px; border-radius: 0 0 16px 16px; }}
+            .footer {{ text-align: center; padding: 20px; font-size: 12px; color: #94a3b8; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1 class="brand">DeNad<span>A</span></h1>
+                <p class="subtitle">Boletín Informativo de Noticias Científicas • {fecha_str}</p>
+            </div>
+            <div class="content">
+                {tarjetas_html}
+            </div>
+            <div class="footer">
+                <p>Generado automáticamente por el pipeline DeNadA | Maxi Jesús López Helacio</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+# ==========================================
+# ENVÍO DE CORREO SMTP
+# ==========================================
+def enviar_correo(html_contenido, fecha_str):
+    """Envía el boletín generado por correo electrónico mediante SMTP."""
+    if not all([EMAIL_REMITENTE, EMAIL_PASSWORD, EMAIL_DESTINATARIO]):
+        print("[ERROR] Faltan variables de entorno para el envío de correo.")
         return
 
-    print(f"[INFO] {len(noticias)} noticias seleccionadas. Procesando...")
+    msg = MIMEMultipart("alternative")
+    msg["Subject"] = f"🧬 DeNadA Digest: Noticias de Ciencia ({fecha_str})"
+    msg["From"] = EMAIL_REMITENTE
+    msg["To"] = EMAIL_DESTINATARIO
 
-    tarjetas = []
-    for i, entrada in enumerate(noticias, start=1):
-        print(f"[INFO] ({i}/{len(noticias)}) Procesando: {entrada['titulo'][:70]}...")
-        titulo_es, resumen_es = resumir_y_traducir_con_ia(entrada)
+    part_html = MIMEText(html_contenido, "html")
+    msg.attach(part_html)
 
-        tarjeta_html = construir_tarjeta_html(
-            fuente=entrada["fuente"],
-            titulo_es=titulo_es,
-            resumen_es=resumen_es,
-            link=entrada["link"],
-            imagen=entrada.get("imagen"),
-        )
-        tarjetas.append(tarjeta_html)
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(EMAIL_REMITENTE, EMAIL_PASSWORD)
+            server.sendmail(EMAIL_REMITENTE, EMAIL_DESTINATARIO.split(","), msg.as_string())
+        print("[ÉXITO] Boletín enviado por correo satisfactoriamente.")
+    except Exception as e:
+        print(f"[ERROR] Error al enviar el correo: {e}")
 
-        time.sleep(1.2)
+# ==========================================
+# FLUJO PRINCIPAL
+# ==========================================
+def main():
+    print("[INFO] Iniciando pipeline DeNadA...")
+    fecha_str = datetime.now().strftime("%d/%m/%Y")
+    
+    # 1. Obtener noticias de los feeds RSS
+    print("[INFO] Obteniendo noticias de fuentes RSS...")
+    noticias_raw = obtener_noticias()
+    
+    if not noticias_raw:
+        print("[WARN] No se encontraron noticias hoy.")
+        return
 
+    # 2. Procesar y resumir con IA
+    print("[INFO] Procesando noticias con Groq (LLaMA 3.3)...")
+    noticias_procesadas = sintetizar_con_groq(noticias_raw)
+
+    # 3. Guardar en base de datos local JSON
+    print("[INFO] Guardando noticias en la base de datos JSON...")
+    guardar_en_historico(noticias_procesadas)
+
+    # 4. Generar tarjetas HTML
+    tarjetas = [generar_tarjeta_html(n) for n in noticias_procesadas]
     tarjetas_html = "\n".join(tarjetas)
     html_final = construir_boletin_completo(tarjetas_html, fecha_str)
 
-    print("[INFO] Enviando boletín DeNadA por correo...")
+    # 5. Enviar boletín por correo
+    print("[INFO] Enviando correo...")
     enviar_correo(html_final, fecha_str)
-
-    print("[OK] Proceso finalizado correctamente.")
-
+    
+    print("[ÉXITO] Proceso completado con éxito.")
 
 if __name__ == "__main__":
     main()
