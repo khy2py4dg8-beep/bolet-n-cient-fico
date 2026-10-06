@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 ================================================================================
- DeNaDa - Divulgación Científica
+ DeNadA - Divulgación Científica
 ================================================================================
 Editado y coordinado por: LOPEZ HELACIO MAXI JESUS
 Tecnológico Nacional de México | Instituto Tecnológico de Celaya
@@ -41,7 +41,7 @@ MIN_TOTAL = 6
 
 HEADERS_HTTP = {
     "User-Agent": (
-        "Mozilla/5.0 (compatible; DeNaDaBoletin/2.0; "
+        "Mozilla/5.0 (compatible; DeNadABoletin/2.0; "
         "+https://github.com/)"
     )
 }
@@ -118,7 +118,6 @@ def obtener_entradas_de_feeds(feeds_dict, max_por_feed=3):
             resp.raise_for_status()
             parsed = feedparser.parse(resp.content)
 
-            # Ordenar las entradas por fecha de publicación si el feed lo soporta
             entradas_ordenadas = parsed.entries
             if entradas_ordenadas and hasattr(entradas_ordenadas[0], 'published_parsed'):
                 try:
@@ -194,7 +193,7 @@ def seleccionar_noticias():
 # 3. PROCESAMIENTO CON IA (Groq)
 # ==============================================================================
 
-SYSTEM_PROMPT = '''Eres un traductor y divulgador científico experto en ciencias biológicas y de la salud para el proyecto DeNaDa.
+SYSTEM_PROMPT = '''Eres un traductor y divulgador científico experto en ciencias biológicas y de la salud para el proyecto DeNadA.
 
 Tu única tarea es tomar un título y un resumen y devolver EXCLUSIVAMENTE un objeto JSON válido:
 {"titulo_es": "...", "resumen_es": "..."}
@@ -272,7 +271,7 @@ def resumir_y_traducir_con_ia(entrada, reintentos=2):
 
 
 # ==============================================================================
-# 4. CONSTRUCCIÓN DEL HTML (DISEÑO DeNaDa)
+# 4. CONSTRUCCIÓN DEL HTML (DISEÑO DeNadA)
 # ==============================================================================
 
 def construir_tarjeta_html(fuente, titulo_es, resumen_es, link, imagen=None):
@@ -302,11 +301,11 @@ def construir_boletin_completo(tarjetas_html, fecha_str):
 <html lang="es">
 <head>
 <meta charset="UTF-8">
-<title>DeNaDa - Divulgación Científica</title>
+<title>DeNadA - Divulgación Científica</title>
 </head>
 <body style="margin:0; padding:0; background-color:#eef1f4;">
 
-    <!-- ENCABEZADO CON LOGO DE "DeNaDa" -->
+    <!-- ENCABEZADO CON LOGO DE "DeNadA" -->
     <div style="background-color:#001F3F; padding:30px 20px; text-align:center; border-bottom: 4px solid #00D2FF;">
       <svg width="60" height="60" viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg" style="vertical-align:middle; margin-bottom:10px;">
         <circle cx="50" cy="50" r="45" stroke="#00D2FF" stroke-width="3" stroke-dasharray="6 6" />
@@ -314,8 +313,8 @@ def construir_boletin_completo(tarjetas_html, fecha_str):
         <ellipse cx="50" cy="50" rx="35" ry="12" stroke="#ffffff" stroke-width="3" transform="rotate(-30 50 50)"/>
         <circle cx="50" cy="50" r="8" fill="#00D2FF"/>
       </svg>
-      <h1 style="color:#ffffff; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size:32px; font-weight:800; letter-spacing:3px; margin:5px 0 0 0;">
-        De<span style="color:#00D2FF;">NaDa</span>
+      <h1 style="color:#ffffff; font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size:34px; font-weight:800; letter-spacing:3px; margin:5px 0 0 0;">
+        De<span style="color:#00D2FF;">NAD</span>A
       </h1>
       <p style="color:#B0C4DE; font-family: Arial, sans-serif; font-size:12px; letter-spacing:2px; text-transform:uppercase; margin:5px 0 0 0; font-weight:600;">
         Divulgación Científica
@@ -332,7 +331,7 @@ def construir_boletin_completo(tarjetas_html, fecha_str):
     <div style="background-color:#001F3F; padding:26px 20px; text-align:center; font-family: Arial, sans-serif; border-top: 1px solid #00D2FF;">
         <p style="color:#ffffff; font-size:13px; margin:0 0 6px 0;">Editado y coordinado por: <strong>LOPEZ HELACIO MAXI JESUS</strong></p>
         <p style="color:#9fb2c9; font-size:12px; margin:0 0 6px 0;">Tecnológico Nacional de México | Instituto Tecnológico de Celaya</p>
-        <p style="color:#6f7f91; font-size:11px; margin:0;">Proyecto DeNaDa &bull; GitHub Actions &amp; Groq</p>
+        <p style="color:#6f7f91; font-size:11px; margin:0;">Proyecto DeNadA &bull; GitHub Actions &amp; Groq</p>
     </div>
 
 </body>
@@ -347,7 +346,7 @@ def enviar_correo(html_final, fecha_str):
     destinatarios = [d.strip() for d in EMAIL_DESTINO.split(",") if d.strip()]
 
     mensaje = MIMEMultipart("alternative")
-    mensaje["Subject"] = f"DeNaDa - Boletín Científico del {fecha_str}"
+    mensaje["Subject"] = f"DeNadA - Boletín Científico del {fecha_str}"
     mensaje["From"] = EMAIL_ORIGEN
     mensaje["To"] = ", ".join(destinatarios)
 
@@ -391,7 +390,7 @@ def main():
     tarjetas_html = "\n".join(tarjetas)
     html_final = construir_boletin_completo(tarjetas_html, fecha_str)
 
-    print("[INFO] Enviando boletín DeNaDa por correo...")
+    print("[INFO] Enviando boletín DeNadA por correo...")
     enviar_correo(html_final, fecha_str)
 
     print("[OK] Proceso finalizado correctamente.")
