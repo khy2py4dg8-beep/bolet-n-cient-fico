@@ -357,6 +357,37 @@ def enviar_correo(html_final, fecha_str):
         servidor.sendmail(EMAIL_ORIGEN, destinatarios, mensaje.as_string())
 
     print(f"[OK] Correo enviado a: {', '.join(destinatarios)}")
+ def guardar_en_historico(noticias_procesadas):
+    """Guarda un registro JSON con todas las noticias procesadas por fecha
+    para alimentar la base de datos pública y el portal de DeNadA.
+    """
+    archivo_json = "historico_noticias.json"
+    historico = []
+
+    # Cargar historial existente si existe
+    if os.path.exists(archivo_json):
+        try:
+            with open(archivo_json, "r", encoding="utf-8") as f:
+                historico = json.load(f)
+        except Exception as e:
+            print(f"[AVISO] No se pudo leer el historial previo: {e}")
+
+    # Nueva entrada para hoy
+    registro_hoy = {
+        "fecha": datetime.now().strftime("%Y-%m-%d"),
+        "fecha_texto": datetime.now().strftime("%d de %B de %Y"),
+        "noticias": noticias_procesadas
+    }
+
+    # Evitar duplicados del mismo día
+    historico = [r for r in historico if r["fecha"] != registro_hoy["fecha"]]
+    historico.insert(0, registro_hoy)  # Lo más reciente primero
+
+    # Guardar archivo actualizado
+    with open(archivo_json, "w", encoding="utf-8") as f:
+        json.dump(historico, f, ensure_ascii=False, indent=2)
+
+    print("[OK] Base de datos 'historico_noticias.json' actualizada correctamente.")
 
 
 def main():
