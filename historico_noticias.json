@@ -78,5 +78,45 @@
     "categoria": "Ciencia",
     "fuente": "Nature",
     "url": "https://www.nature.com/articles/d41586-026-03208-7"
+  },
+  {
+    "fecha": "2026-10-08",
+    "titulo": "Millions of new solar system objects to be found and 'filmed in technicolor' -- studies predict",
+    "resumen": "Astronomers have revealed new research showing that millions of new solar system objects are likely to be detected by a brand-new facility, which is expected to come online later this year....",
+    "categoria": "Ciencia",
+    "fuente": "Latest Science News -- ScienceDaily",
+    "url": "https://www.sciencedaily.com/releases/2025/06/250603213454.htm"
+  },
+  {
+    "fecha": "2026-10-08",
+    "titulo": "Telehealth can improve care for cats with chronic health issues",
+    "resumen": "Researchers found telehealth visits can improve care for cats with feline arthritis....",
+    "categoria": "Ciencia",
+    "fuente": "Latest Science News -- ScienceDaily",
+    "url": "https://www.sciencedaily.com/releases/2025/06/250603172914.htm"
+  },
+  {
+    "fecha": "2026-10-08",
+    "titulo": "Researchers develop innovative model to study sense of smell",
+    "resumen": "Using a newly devised, three-dimensional model to study the regeneration of nerve tissue in the nose, researchers have discovered that one type of stem cell thought to be dormant may play a more signi...",
+    "categoria": "Ciencia",
+    "fuente": "Latest Science News -- ScienceDaily",
+    "url": "https://www.sciencedaily.com/releases/2025/06/250603172911.htm"
+  },
+  {
+    "fecha": "2026-10-08",
+    "titulo": "Author Correction: Histone readers MLLT1 and MLLT3 concentrate AID to confer locus specificity",
+    "resumen": "<p>Nature, Published online: 08 October 2026; <a href=\"https://www.nature.com/articles/s41586-026-11266-0\">doi:10.1038/s41586-026-11266-0</a></p>Author Correction: Histone readers MLLT1 and MLLT3 conc...",
+    "categoria": "Ciencia",
+    "fuente": "Nature",
+    "url": "https://www.nature.com/articles/s41586-026-11266-0"
+  },
+  {
+    "fecha": "2026-10-08",
+    "titulo": "Editorial Expression of Concern: Maternal gut bacteria promote neurodevelopmental abnormalities in mouse offspring",
+    "resumen": "<p>Nature, Published online: 08 October 2026; <a href=\"https://www.nature.com/articles/s41586-026-11070-w\">doi:10.1038/s41586-026-11070-w</a></p>Editorial Expression of Concern: Maternal gut bacteria ...",
+    "categoria": "Ciencia",
+    "fuente": "Nature",
+    "url": "https://www.nature.com/articles/s41586-026-11070-w"
   }
 ]
